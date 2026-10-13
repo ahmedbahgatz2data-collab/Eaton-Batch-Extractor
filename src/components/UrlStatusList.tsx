@@ -31,6 +31,10 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
   onPasteClipboardForJob,
 }) => {
   const [copiedScriptId, setCopiedScriptId] = useState<string | null>(null);
+  const [filterTab, setFilterTab] = useState<'all' | 'error' | 'success' | 'loading'>('all');
+  const [page, setPage] = useState<number>(1);
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(false);
+  const pageSize = 15;
 
   if (jobs.length === 0) return null;
 
@@ -38,6 +42,17 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
   const totalFailed = jobs.filter((j) => j.status === 'error').length;
   const totalLoading = jobs.filter((j) => j.status === 'loading').length;
   const totalItems = jobs.reduce((acc, j) => acc + j.itemsFound, 0);
+
+  const filteredJobs = jobs.filter((job) => {
+    if (filterTab === 'error') return job.status === 'error';
+    if (filterTab === 'success') return job.status === 'success';
+    if (filterTab === 'loading') return job.status === 'loading';
+    return true;
+  });
+
+  const totalJobPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
+  const safeJobPage = Math.min(Math.max(1, page), totalJobPages);
+  const paginatedJobs = filteredJobs.slice((safeJobPage - 1) * pageSize, safeJobPage * pageSize);
 
   const handleCopyScript = (jobUrl: string, jobId: string) => {
     const script = `fetch("${jobUrl}").then(r=>r.json()).then(d=>navigator.clipboard.writeText(JSON.stringify(d))).then(()=>console.log("JSON copied to clipboard!"))`;
@@ -51,39 +66,71 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
       <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-100 gap-2">
         <div className="flex items-center space-x-2">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-700">
-            Source Link Processing Audit & Stealth Diagnostics
-          </h2>
-          <span className="text-xs text-slate-500 font-normal">
-            ({jobs.length} source{jobs.length > 1 ? 's' : ''})
-          </span>
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="text-xs font-semibold uppercase tracking-wider text-slate-700 hover:text-slate-900 flex items-center space-x-1"
+          >
+            <span>Source Processing Audit ({jobs.length})</span>
+            <span className="text-[10px] text-slate-400 font-normal">
+              [{isCollapsed ? 'Show' : 'Hide'}]
+            </span>
+          </button>
         </div>
 
-        {/* Status Metrics */}
-        <div className="flex items-center space-x-3 text-xs">
+        {/* Status Metrics & Filter Tabs */}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <button
+            onClick={() => { setFilterTab('all'); setPage(1); }}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              filterTab === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            All ({jobs.length})
+          </button>
+
           {totalLoading > 0 && (
-            <span className="flex items-center text-blue-600 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
-              {totalLoading} fetching...
-            </span>
+            <button
+              onClick={() => { setFilterTab('loading'); setPage(1); }}
+              className={`flex items-center px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                filterTab === 'loading' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+              }`}
+            >
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              Loading ({totalLoading})
+            </button>
           )}
-          <span className="text-slate-600">
-            <strong className="text-emerald-700 font-semibold">{totalSuccess}</strong> succeeded
-          </span>
+
+          <button
+            onClick={() => { setFilterTab('success'); setPage(1); }}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              filterTab === 'success' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+            }`}
+          >
+            Success ({totalSuccess})
+          </button>
+
           {totalFailed > 0 && (
-            <span className="text-red-600 font-medium">
-              <strong className="font-semibold">{totalFailed}</strong> failed / protected
-            </span>
+            <button
+              onClick={() => { setFilterTab('error'); setPage(1); }}
+              className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+                filterTab === 'error' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+              }`}
+            >
+              Failed/Protected ({totalFailed})
+            </button>
           )}
-          <span className="text-slate-400">·</span>
-          <span className="font-medium text-slate-900">
-            {totalItems} total record{totalItems === 1 ? '' : 's'} extracted
+
+          <span className="text-slate-300">|</span>
+          <span className="font-semibold text-slate-800 text-xs">
+            {totalItems} items extracted
           </span>
         </div>
       </div>
 
-      <div className="mt-3 divide-y divide-slate-100 max-h-96 overflow-y-auto">
-        {jobs.map((job) => {
+      {!isCollapsed && (
+        <>
+          <div className="mt-3 divide-y divide-slate-100 max-h-96 overflow-y-auto">
+            {paginatedJobs.map((job) => {
           const isBotBlocked = job.isBotProtected || (job.error && (job.error.includes('Akamai') || job.error.includes('CORS') || job.error.includes('bot')));
           const isEaton = job.url.includes('eaton.com');
 
@@ -248,7 +295,37 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
             </div>
           );
         })}
-      </div>
+          </div>
+
+          {/* Job Pagination Controls if more than 1 page */}
+          {totalJobPages > 1 && (
+            <div className="pt-2.5 mt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+              <span>
+                Showing {((safeJobPage - 1) * pageSize) + 1}-{Math.min(safeJobPage * pageSize, filteredJobs.length)} of {filteredJobs.length} sources
+              </span>
+              <div className="flex items-center space-x-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={safeJobPage === 1}
+                  className="px-2 py-0.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700"
+                >
+                  Prev
+                </button>
+                <span className="px-1 text-slate-600 font-medium">
+                  {safeJobPage} / {totalJobPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalJobPages, p + 1))}
+                  disabled={safeJobPage === totalJobPages}
+                  className="px-2 py-0.5 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };

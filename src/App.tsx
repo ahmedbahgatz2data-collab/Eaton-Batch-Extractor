@@ -8,6 +8,7 @@ import { UrlStatusList } from './components/UrlStatusList';
 import { ExtractedDataTable } from './components/ExtractedDataTable';
 import { ExportToolbar } from './components/ExportToolbar';
 import { RawJsonModal } from './components/RawJsonModal';
+import { Loader2, Square } from 'lucide-react';
 
 export default function App() {
   const [records, setRecords] = useState<ExtractedRecord[]>([]);
@@ -35,10 +36,19 @@ export default function App() {
     },
   });
 
-  const handleProcessUrls = async (urlsToFetch: string[]) => {
+  // Concurrency and progress state
+  const [progress, setProgress] = useState<{ completed: number; total: number; currentUrl: string } | null>(null);
+  const cancelProcessingRef = React.useRef<boolean>(false);
 
+  const handleStopProcessing = () => {
+    cancelProcessingRef.current = true;
+  };
+
+  const handleProcessUrls = async (urlsToFetch: string[]) => {
     if (urlsToFetch.length === 0) return;
     setIsLoading(true);
+    cancelProcessingRef.current = false;
+    setProgress({ completed: 0, total: urlsToFetch.length, currentUrl: urlsToFetch[0] });
 
     // Initialize or update jobs
     const initialJobs: UrlJob[] = urlsToFetch.map((url) => {
@@ -57,75 +67,117 @@ export default function App() {
     });
 
     const newExtractedRecords: ExtractedRecord[] = [];
+    const jobUpdateMap = new Map<string, Partial<UrlJob>>();
 
-    // Process each URL
-    await Promise.allSettled(
-      urlsToFetch.map(async (url) => {
-        const fetchRes = await fetchJsonFromUrl(
-          url,
-          config.customHeaders,
-          config.stealthMode,
-          config.stealthOptions
-        );
+    // Controlled concurrency worker pool (4 parallel workers)
+    // Running 4 workers prevents remote rate limiting (Akamai 429), socket starvation, and main thread freezing
+    const CONCURRENCY = 4;
+    let index = 0;
+    let completedCount = 0;
 
-        if (fetchRes.success && fetchRes.data !== undefined) {
-          const extracted = extractDataFromJson(fetchRes.data, url, {
-            strictMode: config.strictMode,
-            resolveRelativeUrls: config.resolveRelativeUrls,
+    const worker = async () => {
+      while (index < urlsToFetch.length && !cancelProcessingRef.current) {
+        const currentIndex = index++;
+        const url = urlsToFetch[currentIndex];
+        if (!url) break;
+
+        setProgress({ completed: completedCount, total: urlsToFetch.length, currentUrl: url });
+
+        try {
+          const fetchRes = await fetchJsonFromUrl(
+            url,
+            config.customHeaders,
+            config.stealthMode,
+            config.stealthOptions
+          );
+
+          if (fetchRes.success && fetchRes.data !== undefined) {
+            const extracted = extractDataFromJson(fetchRes.data, url, {
+              strictMode: config.strictMode,
+              resolveRelativeUrls: config.resolveRelativeUrls,
+            });
+
+            newExtractedRecords.push(...extracted);
+
+            // For large batches (>15 URLs), don't keep multi-megabyte raw JSON in memory to prevent V8 GC freeze
+            const shouldStoreRaw = urlsToFetch.length <= 15;
+
+            jobUpdateMap.set(url, {
+              status: 'success',
+              itemsFound: extracted.length,
+              durationMs: fetchRes.durationMs,
+              rawJson: shouldStoreRaw ? fetchRes.data : undefined,
+              isBotProtected: false,
+              error:
+                extracted.length === 0
+                  ? 'Fetched successfully, but 0 objects matched "title", "completeUrl", or "statusBadge"'
+                  : undefined,
+            });
+          } else {
+            jobUpdateMap.set(url, {
+              status: 'error',
+              itemsFound: 0,
+              error: fetchRes.error || 'Failed to fetch',
+              durationMs: fetchRes.durationMs,
+              isBotProtected: fetchRes.isBotProtected,
+              firewallType: fetchRes.firewallType,
+              domain: fetchRes.domain,
+            });
+          }
+        } catch (err) {
+          jobUpdateMap.set(url, {
+            status: 'error',
+            itemsFound: 0,
+            error: err instanceof Error ? err.message : 'Network failure',
           });
+        } finally {
+          completedCount++;
+          setProgress({ completed: completedCount, total: urlsToFetch.length, currentUrl: url });
 
-          newExtractedRecords.push(...extracted);
-
-          setUrlJobs((prev) =>
-            prev.map((job) =>
-              job.url === url
-                ? {
-                    ...job,
-                    status: 'success',
-                    itemsFound: extracted.length,
-                    durationMs: fetchRes.durationMs,
-                    rawJson: fetchRes.data,
-                    isBotProtected: false,
-                    error:
-                      extracted.length === 0
-                        ? 'Fetched successfully, but 0 objects matched "title", "completeUrl", or "statusBadge"'
-                        : undefined,
-                  }
-                : job
-            )
-          );
-        } else {
-          setUrlJobs((prev) =>
-            prev.map((job) =>
-              job.url === url
-                ? {
-                    ...job,
-                    status: 'error',
-                    itemsFound: 0,
-                    error: fetchRes.error || 'Failed to fetch',
-                    durationMs: fetchRes.durationMs,
-                    isBotProtected: fetchRes.isBotProtected,
-                    firewallType: fetchRes.firewallType,
-                    domain: fetchRes.domain,
-                  }
-                : job
-            )
-          );
+          // Periodically flush updates every few completed jobs or when queue finishes
+          if (completedCount % 2 === 0 || completedCount === urlsToFetch.length) {
+            setUrlJobs((prev) =>
+              prev.map((job) => {
+                const update = jobUpdateMap.get(job.url);
+                return update ? { ...job, ...update } : job;
+              })
+            );
+          }
         }
+      }
+    };
+
+    // Spawn workers
+    const workers = Array.from({ length: Math.min(CONCURRENCY, urlsToFetch.length) }, () => worker());
+    await Promise.all(workers);
+
+    // Final flush of any remaining job statuses
+    setUrlJobs((prev) =>
+      prev.map((job) => {
+        const update = jobUpdateMap.get(job.url);
+        return update ? { ...job, ...update } : job;
       })
     );
 
-    // Merge records (deduplicate against existing by signature)
-    setRecords((prev) => {
-      const existingSignatures = new Set(
-        prev.map((r) => `${r.sourceUrl}|${r.title}|${r.completeUrl}|${r.statusBadge}`)
-      );
-      const uniqueNew = newExtractedRecords.filter(
-        (r) => !existingSignatures.has(`${r.sourceUrl}|${r.title}|${r.completeUrl}|${r.statusBadge}`)
-      );
-      return [...prev, ...uniqueNew];
-    });
+    // Efficient bulk record deduplication & merge
+    if (newExtractedRecords.length > 0) {
+      setRecords((prev) => {
+        const existingSignatures = new Set(
+          prev.map((r) => `${r.sourceUrl}|${r.title}|${r.completeUrl}|${r.statusBadge}`)
+        );
+        const uniqueNew: ExtractedRecord[] = [];
+        for (const r of newExtractedRecords) {
+          const sig = `${r.sourceUrl}|${r.title}|${r.completeUrl}|${r.statusBadge}`;
+          if (!existingSignatures.has(sig)) {
+            existingSignatures.add(sig);
+            uniqueNew.push(r);
+          }
+        }
+        return [...prev, ...uniqueNew];
+      });
+    }
 
+    setProgress(null);
     setIsLoading(false);
   };
 
@@ -276,6 +328,43 @@ export default function App() {
           config={config}
           onConfigChange={setConfig}
         />
+
+        {/* Real-Time Processing Progress Banner with Cancel Option */}
+        {progress && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 shadow-2xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div className="flex items-center space-x-2">
+                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                <span className="text-xs font-semibold text-emerald-950">
+                  Processing Link {progress.completed} of {progress.total} (
+                  {Math.round((progress.completed / Math.max(1, progress.total)) * 100)}%)
+                </span>
+                <span className="text-slate-400">·</span>
+                <span className="text-[11px] text-emerald-700 truncate max-w-xs sm:max-w-md font-mono">
+                  {progress.currentUrl}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleStopProcessing}
+                className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-medium text-rose-700 bg-white hover:bg-rose-50 border border-rose-200 rounded-lg shadow-2xs transition-colors"
+                title="Stop processing remaining URLs"
+              >
+                <Square className="w-3 h-3 text-rose-600 fill-current" />
+                <span>Stop Batch</span>
+              </button>
+            </div>
+            {/* Animated progress track */}
+            <div className="w-full bg-emerald-200/60 rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-emerald-600 h-2 rounded-full transition-all duration-200 ease-out"
+                style={{
+                  width: `${Math.round((progress.completed / Math.max(1, progress.total)) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* URL Jobs Audit List */}
         {urlJobs.length > 0 && (

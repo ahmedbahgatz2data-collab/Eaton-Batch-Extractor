@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ExtractedRecord } from '../types/extractor';
 import { 
   Search, 
@@ -12,7 +12,9 @@ import {
   Check, 
   Trash2,
   FileSpreadsheet,
-  AlertCircle
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface ExtractedDataTableProps {
@@ -43,6 +45,9 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
   const [sortField, setSortField] = useState<SortField>('index');
   const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
 
   // Extract unique badges for dropdown
   const uniqueBadges = useMemo(() => {
@@ -128,6 +133,35 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
     setTimeout(() => setCopiedId(null), 1500);
   };
 
+  // Calculate pagination
+  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  // Reset to page 1 when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, badgeFilter, sourceFilter, pageSize]);
+
+  // Paginated records - ONLY render the current page in the DOM (prevents freezing on 1000s of items)
+  const paginatedRecords = useMemo(() => {
+    const start = (safeCurrentPage - 1) * pageSize;
+    return sortedRecords.slice(start, start + pageSize);
+  }, [sortedRecords, safeCurrentPage, pageSize]);
+
+  const allPageSelected = paginatedRecords.length > 0 && paginatedRecords.every((r) => selectedIds.has(r.id));
+  const somePageSelected = paginatedRecords.some((r) => selectedIds.has(r.id));
+  const allTotalSelected = sortedRecords.length > 0 && sortedRecords.every((r) => selectedIds.has(r.id));
+
+  const handleSelectCurrentPage = () => {
+    const newSelected = new Set(selectedIds);
+    if (allPageSelected) {
+      paginatedRecords.forEach((r) => newSelected.delete(r.id));
+    } else {
+      paginatedRecords.forEach((r) => newSelected.add(r.id));
+    }
+    // Update by triggering select on IDs or we can call onToggleSelectAll
+  };
+
   const getBadgeStyle = (badge: string) => {
     const lower = (badge || '').toLowerCase();
     if (
@@ -181,15 +215,14 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
           No Extracted Records Yet
         </h3>
         <p className="text-xs text-slate-500 max-w-md mx-auto mb-4">
-          Paste Eaton JSON links above or click "Insert Eaton Example" to extract <code className="font-mono text-emerald-700 font-semibold">title</code>, <code className="font-mono text-emerald-700 font-semibold">completeUrl</code>, and <code className="font-mono text-emerald-700 font-semibold">statusBadge</code> into an Excel spreadsheet.
+          Paste Eaton JSON links above to extract <code className="font-mono text-emerald-700 font-semibold">title</code>, <code className="font-mono text-emerald-700 font-semibold">completeUrl</code>, and <code className="font-mono text-emerald-700 font-semibold">statusBadge</code> into an Excel spreadsheet.
         </p>
-
       </div>
     );
   }
 
-  const allSelected = sortedRecords.length > 0 && sortedRecords.every((r) => selectedIds.has(r.id));
-  const someSelected = sortedRecords.some((r) => selectedIds.has(r.id));
+  const startRecordIdx = (safeCurrentPage - 1) * pageSize + 1;
+  const endRecordIdx = Math.min(safeCurrentPage * pageSize, sortedRecords.length);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
@@ -244,9 +277,10 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
         {/* Counter and Clear */}
         <div className="flex items-center space-x-3 text-xs">
           <span className="text-slate-500">
-            Showing <strong className="text-slate-900">{sortedRecords.length}</strong> of{' '}
-            <strong className="text-slate-900">{records.length}</strong> records
-            {selectedIds.size > 0 && ` (${selectedIds.size} selected)`}
+            Showing <strong className="text-slate-900">{startRecordIdx}-{endRecordIdx}</strong> of{' '}
+            <strong className="text-slate-900">{sortedRecords.length}</strong>
+            {sortedRecords.length !== records.length && ` (filtered from ${records.length})`}
+            {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
           </span>
 
           <button
@@ -267,12 +301,13 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
               <th className="py-2.5 px-3 w-10 text-center">
                 <input
                   type="checkbox"
-                  checked={allSelected}
+                  checked={allTotalSelected}
                   ref={(input) => {
-                    if (input) input.indeterminate = someSelected && !allSelected;
+                    if (input) input.indeterminate = selectedIds.size > 0 && !allTotalSelected;
                   }}
                   onChange={onToggleSelectAll}
                   className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  title="Select all records"
                 />
               </th>
               <th className="py-2.5 px-3 w-12 text-slate-500">#</th>
@@ -332,15 +367,17 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {sortedRecords.length === 0 ? (
+            {paginatedRecords.length === 0 ? (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-slate-500">
                   No records match your search or filter.
                 </td>
               </tr>
             ) : (
-              sortedRecords.map((rec, idx) => {
+              paginatedRecords.map((rec, idx) => {
                 const isSelected = selectedIds.has(rec.id);
+                const actualIndex = (safeCurrentPage - 1) * pageSize + idx + 1;
+
                 return (
                   <tr
                     key={rec.id}
@@ -360,7 +397,7 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
 
                     {/* Row Index */}
                     <td className="py-2 px-3 text-slate-400 font-mono text-[11px]">
-                      {idx + 1}
+                      {actualIndex}
                     </td>
 
                     {/* Source JSON URL */}
@@ -472,6 +509,93 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Bar - Keeps the app smooth even with tens of thousands of rows */}
+      {sortedRecords.length > 0 && (
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+          <div className="flex items-center space-x-2">
+            <span>Rows per page:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-500 font-medium"
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+            </select>
+            <span className="text-slate-400">·</span>
+            <span>
+              Page <strong className="text-slate-900">{safeCurrentPage}</strong> of{' '}
+              <strong className="text-slate-900">{totalPages}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center space-x-1">
+            <button
+              onClick={() => setCurrentPage(1)}
+              disabled={safeCurrentPage === 1}
+              className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors"
+              title="First Page"
+            >
+              «
+            </button>
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={safeCurrentPage === 1}
+              className="flex items-center px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5 mr-0.5" />
+              Prev
+            </button>
+
+            {/* Smart page number bubbles */}
+            <div className="hidden sm:flex items-center space-x-1 px-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let p = i + 1;
+                if (totalPages > 5) {
+                  if (safeCurrentPage > 3 && safeCurrentPage < totalPages - 2) {
+                    p = safeCurrentPage - 2 + i;
+                  } else if (safeCurrentPage >= totalPages - 2) {
+                    p = totalPages - 4 + i;
+                  }
+                }
+                return (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p)}
+                    className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                      safeCurrentPage === p
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safeCurrentPage === totalPages}
+              className="flex items-center px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors"
+            >
+              Next
+              <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+            </button>
+            <button
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={safeCurrentPage === totalPages}
+              className="px-2 py-1 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 transition-colors"
+              title="Last Page"
+            >
+              »
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
