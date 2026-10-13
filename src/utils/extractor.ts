@@ -2,6 +2,7 @@ import { ExtractedRecord } from '../types/extractor';
 
 // Keys to search for exact match
 const EXACT_TITLE_KEYS = ['title'];
+const EXACT_DESCRIPTION_KEYS = ['description'];
 const EXACT_URL_KEYS = ['completeUrl'];
 const EXACT_BADGE_KEYS = ['statusBadge'];
 
@@ -9,6 +10,11 @@ const EXACT_BADGE_KEYS = ['statusBadge'];
 const ALIAS_TITLE_KEYS = [
   'title', 'Title', 'TITLE', 'jcr:title', 'productTitle', 'heading', 'headline',
   'post_title', 'item_title', 'name', 'task_name', 'label', 'searchTerm', 'partNumber'
+];
+const ALIAS_DESCRIPTION_KEYS = [
+  'description', 'Description', 'DESCRIPTION', 'shortDescription', 'short_description',
+  'productDescription', 'item_description', 'summary', 'snippet', 'details', 'metaDescription',
+  'body', 'jcr:description', 'teaser'
 ];
 const ALIAS_URL_KEYS = [
   'completeUrl', 'complete_url', 'completeURL', 'url', 'URL', 'link', 'fullUrl', 'full_url',
@@ -19,6 +25,20 @@ const ALIAS_BADGE_KEYS = [
   'condition', 'productStatus', 'availability', 'category', 'type', 'statusText'
 ];
 
+function cleanHtmlText(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]+>/g, '') // remove HTML tags
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function extractStringValue(val: unknown): string {
   if (val === null || val === undefined) return '';
   if (typeof val === 'string') return val.trim();
@@ -28,7 +48,7 @@ function extractStringValue(val: unknown): string {
   if (typeof val === 'object') {
     // If it's an object with label/text/name/value
     const obj = val as Record<string, unknown>;
-    const subKeys = ['label', 'text', 'value', 'name', 'title', 'badge', 'status'];
+    const subKeys = ['label', 'text', 'value', 'name', 'title', 'badge', 'status', 'description'];
     for (const k of subKeys) {
       if (typeof obj[k] === 'string' && obj[k]) {
         return (obj[k] as string).trim();
@@ -76,11 +96,14 @@ function extractFromObject(
   resolveRelative: boolean
 ): ExtractedRecord | null {
   const titleKeys = strictMode ? EXACT_TITLE_KEYS : ALIAS_TITLE_KEYS;
+  const descriptionKeys = strictMode ? EXACT_DESCRIPTION_KEYS : ALIAS_DESCRIPTION_KEYS;
   const urlKeys = strictMode ? EXACT_URL_KEYS : ALIAS_URL_KEYS;
   const badgeKeys = strictMode ? EXACT_BADGE_KEYS : ALIAS_BADGE_KEYS;
 
   let foundTitle = '';
   let hasTitle = false;
+  let foundDescription = '';
+  let hasDescription = false;
   let foundUrl = '';
   let hasCompleteUrl = false;
   let foundBadge = '';
@@ -91,8 +114,20 @@ function extractFromObject(
     if (k in obj && obj[k] !== undefined && obj[k] !== null) {
       const str = extractStringValue(obj[k]);
       if (str) {
-        foundTitle = str;
+        foundTitle = cleanHtmlText(str);
         hasTitle = true;
+        break;
+      }
+    }
+  }
+
+  // Search for Description
+  for (const k of descriptionKeys) {
+    if (k in obj && obj[k] !== undefined && obj[k] !== null) {
+      const str = extractStringValue(obj[k]);
+      if (str) {
+        foundDescription = cleanHtmlText(str);
+        hasDescription = true;
         break;
       }
     }
@@ -148,8 +183,8 @@ function extractFromObject(
   // Strict validation: must have title or completeUrl, and not be a tiny leaf tuple
   const isLeafBadgeTuple = !hasCompleteUrl && !hasStatusBadge && Object.keys(obj).length <= 2;
   const isQualified = strictMode
-    ? (hasTitle || hasCompleteUrl || hasStatusBadge)
-    : (hasCompleteUrl || (hasTitle && (hasStatusBadge || !isLeafBadgeTuple)));
+    ? (hasTitle || hasCompleteUrl || hasStatusBadge || hasDescription)
+    : (hasCompleteUrl || (hasTitle && (hasStatusBadge || hasDescription || !isLeafBadgeTuple)));
 
   if (isQualified) {
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -158,12 +193,14 @@ function extractFromObject(
       id,
       sourceUrl,
       title: foundTitle,
+      description: foundDescription,
       completeUrl: foundUrl,
       statusBadge: foundBadge,
       extractedAt: new Date().toISOString(),
       rawItem: obj,
       fieldFlags: {
         hasTitle,
+        hasDescription,
         hasCompleteUrl,
         hasStatusBadge,
       },
@@ -175,7 +212,7 @@ function extractFromObject(
 
 /**
  * Recursively inspects a parsed JSON structure (object or array)
- * and extracts all records that contain title, completeUrl, and/or statusBadge.
+ * and extracts all records that contain title, description, completeUrl, and/or statusBadge.
  */
 export function extractDataFromJson(
   jsonData: unknown,
@@ -225,8 +262,8 @@ export function extractDataFromJson(
             resolveRelative
           );
           if (record) {
-            // Deduplicate if identical title and URL
-            const signature = `${record.title}|${record.completeUrl}|${record.statusBadge}`;
+            // Deduplicate if identical title, description, and URL
+            const signature = `${record.title}|${record.description}|${record.completeUrl}|${record.statusBadge}`;
             if (!seenKeys.has(signature)) {
               seenKeys.add(signature);
               results.push(record);
@@ -245,7 +282,7 @@ export function extractDataFromJson(
       // Check if the current object itself is a record (e.g. single item payload)
       const directRecord = extractFromObject(obj, sourceUrl, strictMode, resolveRelative);
       if (directRecord && directRecord.fieldFlags.hasTitle && directRecord.fieldFlags.hasCompleteUrl) {
-        const signature = `${directRecord.title}|${directRecord.completeUrl}|${directRecord.statusBadge}`;
+        const signature = `${directRecord.title}|${directRecord.description}|${directRecord.completeUrl}|${directRecord.statusBadge}`;
         if (!seenKeys.has(signature)) {
           seenKeys.add(signature);
           results.push(directRecord);

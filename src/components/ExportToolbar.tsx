@@ -82,6 +82,7 @@ export const ExportToolbar: React.FC<ExportToolbarProps> = ({
     const dataToExport = activeRecords.map((r) => ({
       inputJsonLink: r.sourceUrl,
       title: r.title,
+      description: r.description,
       completeUrl: r.completeUrl,
       statusBadge: r.statusBadge,
       extractedAt: r.extractedAt,

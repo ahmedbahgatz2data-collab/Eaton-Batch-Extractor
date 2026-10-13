@@ -13,6 +13,7 @@ export function exportRecordsToExcel(
   if (options.includeIndex) headers.push('#');
   if (options.includeInputLink) headers.push('Input JSON Link');
   headers.push('Title');
+  headers.push('Description');
   headers.push('Complete URL');
   headers.push('Status Badge');
   if (options.includeTimestamp) headers.push('Extracted At');
@@ -24,6 +25,7 @@ export function exportRecordsToExcel(
     if (options.includeIndex) row.push(idx + 1);
     if (options.includeInputLink) row.push(rec.sourceUrl);
     row.push(rec.title || '(No Title)');
+    row.push(rec.description || '');
     row.push(rec.completeUrl || '(No URL)');
     row.push(rec.statusBadge || '(None)');
     if (options.includeTimestamp) row.push(new Date(rec.extractedAt).toLocaleString());
@@ -70,6 +72,7 @@ export function exportRecordsToExcel(
       targetColIdx++;
     }
     targetColIdx++; // skip Title col
+    targetColIdx++; // skip Description col
 
     // Complete URL hyperlink
     if (rec.completeUrl.startsWith('http://') || rec.completeUrl.startsWith('https://')) {
@@ -126,10 +129,11 @@ export function exportRecordsToExcel(
 }
 
 export function exportRecordsToCsv(records: ExtractedRecord[], filename = 'extracted_data.csv'): void {
-  const headers = ['Input JSON Link', 'Title', 'Complete URL', 'Status Badge', 'Extracted At'];
+  const headers = ['Input JSON Link', 'Title', 'Description', 'Complete URL', 'Status Badge', 'Extracted At'];
   const rows = records.map((r) => [
     `"${(r.sourceUrl || '').replace(/"/g, '""')}"`,
     `"${(r.title || '').replace(/"/g, '""')}"`,
+    `"${(r.description || '').replace(/"/g, '""')}"`,
     `"${(r.completeUrl || '').replace(/"/g, '""')}"`,
     `"${(r.statusBadge || '').replace(/"/g, '""')}"`,
     `"${r.extractedAt}"`,
@@ -148,10 +152,11 @@ export function exportRecordsToCsv(records: ExtractedRecord[], filename = 'extra
 }
 
 export function copyRecordsToClipboard(records: ExtractedRecord[]): Promise<boolean> {
-  const headers = ['Input JSON Link', 'Title', 'Complete URL', 'Status Badge'];
+  const headers = ['Input JSON Link', 'Title', 'Description', 'Complete URL', 'Status Badge'];
   const rows = records.map((r) => [
     r.sourceUrl,
     r.title,
+    r.description || '',
     r.completeUrl,
     r.statusBadge,
   ]);

@@ -26,7 +26,7 @@ export const Header: React.FC<HeaderProps> = ({ recordCount, urlCount, stealthMo
               </span>
             </div>
             <p className="text-xs text-slate-500 hidden sm:block">
-              Extract <code className="text-emerald-700 font-mono text-[11px] font-semibold">title</code>, <code className="text-emerald-700 font-mono text-[11px] font-semibold">completeUrl</code>, and <code className="text-emerald-700 font-mono text-[11px] font-semibold">statusBadge</code> to formatted Excel (.xlsx)
+              Extract <code className="text-emerald-700 font-mono text-[11px] font-semibold">title</code>, <code className="text-emerald-700 font-mono text-[11px] font-semibold">description</code>, <code className="text-emerald-700 font-mono text-[11px] font-semibold">completeUrl</code>, and <code className="text-emerald-700 font-mono text-[11px] font-semibold">statusBadge</code> to formatted Excel (.xlsx)
             </p>
           </div>
         </div>

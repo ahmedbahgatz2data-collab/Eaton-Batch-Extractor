@@ -27,7 +27,7 @@ interface ExtractedDataTableProps {
   onInspectRecordJson: (rec: ExtractedRecord) => void;
 }
 
-type SortField = 'index' | 'sourceUrl' | 'title' | 'completeUrl' | 'statusBadge';
+type SortField = 'index' | 'sourceUrl' | 'title' | 'description' | 'completeUrl' | 'statusBadge';
 type SortOrder = 'asc' | 'desc';
 
 export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
@@ -82,10 +82,11 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase();
         const matchesTitle = rec.title.toLowerCase().includes(query);
+        const matchesDesc = rec.description ? rec.description.toLowerCase().includes(query) : false;
         const matchesUrl = rec.completeUrl.toLowerCase().includes(query);
         const matchesBadge = rec.statusBadge.toLowerCase().includes(query);
         const matchesSource = rec.sourceUrl.toLowerCase().includes(query);
-        return matchesTitle || matchesUrl || matchesBadge || matchesSource;
+        return matchesTitle || matchesDesc || matchesUrl || matchesBadge || matchesSource;
       }
       return true;
     });
@@ -99,6 +100,9 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
       if (sortField === 'title') {
         valA = a.title.toLowerCase();
         valB = b.title.toLowerCase();
+      } else if (sortField === 'description') {
+        valA = (a.description || '').toLowerCase();
+        valB = (b.description || '').toLowerCase();
       } else if (sortField === 'completeUrl') {
         valA = a.completeUrl.toLowerCase();
         valB = b.completeUrl.toLowerCase();
@@ -338,6 +342,19 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
                 </div>
               </th>
               <th
+                onClick={() => handleSort('description')}
+                className="py-2.5 px-3 cursor-pointer hover:bg-slate-200/50 transition-colors"
+              >
+                <div className="flex items-center space-x-1">
+                  <span>Description</span>
+                  {sortField === 'description' ? (
+                    sortOrder === 'asc' ? <ArrowUp className="w-3 h-3 text-emerald-600" /> : <ArrowDown className="w-3 h-3 text-emerald-600" />
+                  ) : (
+                    <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                  )}
+                </div>
+              </th>
+              <th
                 onClick={() => handleSort('completeUrl')}
                 className="py-2.5 px-3 cursor-pointer hover:bg-slate-200/50 transition-colors"
               >
@@ -369,7 +386,7 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
           <tbody className="divide-y divide-slate-100">
             {paginatedRecords.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-slate-500">
+                <td colSpan={8} className="py-8 text-center text-slate-500">
                   No records match your search or filter.
                 </td>
               </tr>
@@ -411,7 +428,7 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
                     </td>
 
                     {/* Title */}
-                    <td className="py-2 px-3 max-w-[280px]">
+                    <td className="py-2 px-3 max-w-[240px]">
                       {rec.title ? (
                         <span className="font-medium text-slate-900 block truncate" title={rec.title}>
                           {rec.title}
@@ -421,6 +438,17 @@ export const ExtractedDataTable: React.FC<ExtractedDataTableProps> = ({
                           <AlertCircle className="w-3 h-3 text-amber-500 mr-1" />
                           Missing title
                         </span>
+                      )}
+                    </td>
+
+                    {/* Description */}
+                    <td className="py-2 px-3 max-w-[240px]">
+                      {rec.description ? (
+                        <span className="text-slate-600 text-[11px] block truncate" title={rec.description}>
+                          {rec.description}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 italic text-[11px]">—</span>
                       )}
                     </td>
 

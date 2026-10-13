@@ -2,12 +2,14 @@ export interface ExtractedRecord {
   id: string;
   sourceUrl: string; // The input JSON link
   title: string;
+  description: string;
   completeUrl: string;
   statusBadge: string;
   extractedAt: string;
   rawItem?: Record<string, unknown>;
   fieldFlags: {
     hasTitle: boolean;
+    hasDescription: boolean;
     hasCompleteUrl: boolean;
     hasStatusBadge: boolean;
   };
