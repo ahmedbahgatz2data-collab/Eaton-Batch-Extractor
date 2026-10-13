@@ -18,6 +18,7 @@ import {
 interface UrlStatusListProps {
   jobs: UrlJob[];
   onRetry: (url: string) => void;
+  onRetryAllFailed?: () => void;
   onRemoveJob: (id: string) => void;
   onInspectJson: (rawJson: unknown, sourceName: string) => void;
   onPasteClipboardForJob?: (sourceUrl: string) => void;
@@ -26,6 +27,7 @@ interface UrlStatusListProps {
 export const UrlStatusList: React.FC<UrlStatusListProps> = ({
   jobs,
   onRetry,
+  onRetryAllFailed,
   onRemoveJob,
   onInspectJson,
   onPasteClipboardForJob,
@@ -120,6 +122,18 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
             </button>
           )}
 
+          {totalFailed > 0 && onRetryAllFailed && (
+            <button
+              type="button"
+              onClick={onRetryAllFailed}
+              className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded text-xs font-semibold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+              title="Retry all failed and bot-protected URLs with Stealth Mode"
+            >
+              <RotateCcw className="w-3 h-3 text-amber-800" />
+              <span>Retry All Failed ({totalFailed})</span>
+            </button>
+          )}
+
           <span className="text-slate-300">|</span>
           <span className="font-semibold text-slate-800 text-xs">
             {totalItems} items extracted
@@ -129,6 +143,26 @@ export const UrlStatusList: React.FC<UrlStatusListProps> = ({
 
       {!isCollapsed && (
         <>
+          {/* Helpful callout banner if user is viewing errors */}
+          {totalFailed > 0 && filterTab === 'error' && onRetryAllFailed && (
+            <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2 text-xs text-amber-900">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  <strong>{totalFailed} URL{totalFailed > 1 ? 's' : ''}</strong> failed or were blocked. Retrying will refresh job statuses and update the extracted records immediately.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onRetryAllFailed}
+                className="inline-flex items-center space-x-1 px-3 py-1 text-xs font-bold text-amber-950 bg-amber-200 hover:bg-amber-300 border border-amber-400 rounded-md transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Retry All {totalFailed} Failed Links</span>
+              </button>
+            </div>
+          )}
+
           <div className="mt-3 divide-y divide-slate-100 max-h-96 overflow-y-auto">
             {paginatedJobs.map((job) => {
           const isBotBlocked = job.isBotProtected || (job.error && (job.error.includes('Akamai') || job.error.includes('CORS') || job.error.includes('bot')));
