@@ -1,0 +1,8 @@
+{
+  "name": "Remix JSON to Excel Data Extractor",
+  "description": "Extract title, completeUrl, and statusBadge from JSON links and export directly to formatted Excel (.xlsx) spreadsheets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
